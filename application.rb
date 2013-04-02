@@ -2,15 +2,9 @@ require 'socketeer'
 require 'fifo'
 require 'logger'
 
-$log = Logger.new STDOUT
+Thread.abort_on_exception = true
 
-class LogHandler < Handler
-  def write data
-    $log.debug "WRITING TO CLIENT: #{data.length}" unless data.nil?
-    #@socket.write data
-    $log.debug "DONE WRITING TO CLIENT"
-  end
-end
+$log = Logger.new STDOUT
 
 class FFMpegger
 
@@ -27,23 +21,23 @@ class FFMpegger
     msg = pop_message
     handle_data msg[:pipe_path], msg[:data] unless msg.nil?
     push_new_ffmpeg_data
+    clean_heartbeats
+    restart_ffmpeg if ffmpeg_needs_restart? && has_sources?
   end
 
   def handle_data pipe_path, data
     $log.debug "Handle Data: #{pipe_path} #{data.length}"
     heartbeat pipe_path
-    restart_ffmpeg if ffmpeg_needs_restart?
   end
 
   private
 
   def push_new_ffmpeg_data
-    $log.debug "Checking for FFMPEG data"
     begin
       unless @ffmpeg_pipe.nil?
         data = ''
         loop do
-          data << @ffmpeg_pipe.read_nonblock(2096)
+          data << @ffmpeg_pipe.read_nonblock(4096)
         end
       end
     rescue IO::WaitReadable 
@@ -62,7 +56,6 @@ class FFMpegger
 
   def start_ffmpeg
     $log.info "FFMPEG Starting"
-    clean_heartbeats
     cmd = ffmpeg_command
     $log.info "FFMPEG Command: #{cmd}"
     @ffmpeg_pipe = IO.popen(cmd, 'r')
@@ -129,16 +122,20 @@ class FFMpegger
   end
 
   def clean_heartbeats
-    $log.debug "Cleaning Heartbeats: #{@heartbeats}"
-    @heartbeats = @heartbeats.select { |_,t| t - Time.now.to_i < 20 }
-    $log.debug "Remaining heartbeats: #{@heartbeats}"
+    l = @heartbeats.length
+    @heartbeats = @heartbeats.select { |_,t| Time.now.to_i - t < 20 }
+  end
+
+  def has_sources?
+    @heartbeats.length != 0
   end
 
   def stop_ffmpeg
     $log.info "Stopping FFMPEG"
     return false if @ffmpeg_pipe.nil?
     $log.info "Killing FFMPEG: #{@ffmpeg_pipe.pid}"
-    Process.kill @ffmpeg_pipe.pid
+    Process.kill 9, @ffmpeg_pipe.pid
+    Process.wait @ffmpeg_pipe.pid
   end
 
   def heartbeat pipe_path
@@ -155,13 +152,13 @@ class FFMpegger
   def ffmpeg_dead?
     dead = true if @ffmpeg_pipe.nil?
     dead = dead || Process.getpgid(@ffmpeg_pipe.pid) == 1
-    $log.info "FFMPEG DEAD" if dead
+    $log.info "FFMPEG DEAD" if dead && !@ffmpeg_pipe.nil?
     dead
   end
 
   def stopped_getting_data?
     @heartbeats.each do |pipe_path, last_beat|
-      if last_beat - Time.now.to_i > 20
+      if Time.now.to_i - last_beat > 20
         $log.info "Data Timeout: #{pipe_path} #{last_beat}"
         return true 
       end
@@ -193,8 +190,8 @@ class UnixPipeWriter
 
   def handle_data connection_id, data
     $log.debug "Unix Writer Handling: #{connection_id} #{data.length}"
-    push_to_pipe connection_id, data
     push_details connection_id, data
+    push_to_pipe connection_id, data
   end
 
   def push_details connection_id, data
@@ -234,11 +231,40 @@ ffmpegger = FFMpegger.new
 ffmpegger.bind_queues IQueue.new, IQueue.new
 unix_pipe_writer = UnixPipeWriter.new
 unix_pipe_writer.bind_queues IQueue.new, IQueue.new
-socket_server = Server.new 'localhost', 8000, LogHandler
+socket_server = Server.new 'localhost', 8000, Handler
 socket_server.bind_queues IQueue.new, IQueue.new
 
-pipeline = Pipeline.new socket_server, unix_pipe_writer, ffmpegger
+class ThreadedPipeline < Pipeline
 
-loop do
-  pipeline.cycle
+  def start_threaded_cycle
+    @messengers.each { |m| cycle_thread(m) }
+    Thread.new do
+      loop do
+        @messengers.each_cons(2) do |a, b|
+          begin
+            m = a.out_queue.deq true
+            b.in_queue << m
+          rescue ThreadError
+          end
+        end
+        sleep(0.1)
+      end
+    end.join
+  end
+
+  def cycle_thread obj
+    if obj.respond_to? 'cycle'
+      Thread.new do 
+        loop do
+          obj.cycle
+          sleep 0.1
+        end
+      end
+    end
+  end
+
 end
+
+pipeline = ThreadedPipeline.new socket_server, unix_pipe_writer, ffmpegger, socket_server
+
+pipeline.start_threaded_cycle
