@@ -77,23 +77,25 @@ class FFMpegger
     $log.debug "CELL SIZE: #{cell_size}"
 
     # scale our inputs
+    stream_letter = nil
     @heartbeats.keys.each_with_index do |_, i|
-      stream_letter = (96 + i).chr
-      args << "[#{i}:0]scale=#{cell_size}:-1[#{stream_letter}];"
+      stream_letter = (97 + i).chr
+      _arg << "[#{i}:0]scale=#{cell_size}:-1[#{stream_letter}];"
     end
 
     # line our inputs up
+    last_new_stream_letter = stream_letter
     @heartbeats.keys.each_with_index do |fifo_path, i|
-      new_stream_letter = (96 + @heartbeats.length + i).chr
-      last_new_stream_letter = (new_stream_letter.ord - 1).chr
-      input_stream_letter = (96 + i).chr
+      new_stream_letter = (last_new_stream_letter.ord + 1).chr
+      input_stream_letter = (97 + i).chr
       row_i = i % cells_per_side
       col_i = i % (i * cells_per_side) rescue 0
-      args << "[#{new_stream_letter}][#{input_stream_letter}]" + \
-              "overlay=w[a]*#{row_i}:h[a]*#{col_i}[#{new_stream_letter}];"
+      _arg << "[#{last_new_stream_letter}][#{input_stream_letter}]" + \
+              "overlay=#{cell_size*row_i}:h#{cell_size*col_i}[#{new_stream_letter}];"
+      last_new_stream_letter = new_stream_letter
     end
     _arg << '"'
-    log.debug "COMPLEX ARG: #{_arg}"
+    $log.debug "COMPLEX ARG: #{_arg}"
     args << _arg
     args << "-shortest" # stop w/ first to stop
     args << "-" # output to stdout
