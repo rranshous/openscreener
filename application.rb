@@ -30,7 +30,12 @@ class FFMpegger
   private
 
   def push_new_ffmpeg_data
-    data = @ffmpeg_output.read_nonblock 4096 rescue nil
+    $log.debug "Checking for FFMPEG data"
+    begin
+      data = @ffmpeg_reader.read_nonblock 4096 unless @ffmpeg_reader.nil?
+    rescue IO::WaitReadable 
+      # nothing to read
+    end
     return false if data.nil?
     $log.debug "FFMPEG Data: #{data.length}"
     push_message({:data=>data}) unless data.nil?
@@ -45,26 +50,30 @@ class FFMpegger
   def start_ffmpeg
     $log.info "FFMPEG Starting"
     clean_heartbeats
-    ffmpeg_input, @ffmpeg_output = IO.pipe
-    args = ffmpeg_args
-    puts "FFMPEG_ARGS: #{args}"
+    @ffmpeg_reader, ffmpeg_writer = IO.pipe
+    cmd = ffmpeg_command
+    $log.info "FFMPEG Command: #{cmd}"
     @ffmpeg_pid = fork {
-      ffmpeg_input.close # nothing to write
-      $stdout.reopen @ffmpeg_output
-      $log.info "Starting FFMPEG PROC"
-      exec @@ffmpeg_command, *args
+      $stdout.reopen ffmpeg_writer
+      exec cmd
     }
     $log.info "FFMPEG PID: #{@ffmpeg_pid}"
+  end
+
+  def ffmpeg_command
+    "#{@@ffmpeg_command} #{arg_string}"
+  end
+
+  def arg_string 
+    ffmpeg_args.join(' ')
   end
 
   def ffmpeg_args
     args = []
     @heartbeats.each do |fifo_path, last_heartbeat|
-      args << '-i'
-      args << fifo_path
+      args << "-i #{fifo_path}"
     end
     args << '-filter_complex'
-    _arg = '"'
 
     # output a square video for simplicity
     output_width = output_height = 1024
@@ -76,29 +85,37 @@ class FFMpegger
     $log.debug "CELLS PER SIDE: #{cells_per_side}"
     $log.debug "CELL SIZE: #{cell_size}"
 
+    _arg = '"'
+    # create initial padding to create correct size area
+    _arg << "[0:0]pad=#{output_width}:#{output_height}[a];"
+
     # scale our inputs
-    stream_letter = nil
+    stream_letter = 'a'
     @heartbeats.keys.each_with_index do |_, i|
-      stream_letter = (97 + i).chr
+      stream_letter = (98 + i).chr
       _arg << "[#{i}:0]scale=#{cell_size}:-1[#{stream_letter}];"
     end
 
     # line our inputs up
-    last_new_stream_letter = stream_letter
+    last_new_stream_letter = 'a'
     @heartbeats.keys.each_with_index do |fifo_path, i|
       new_stream_letter = (last_new_stream_letter.ord + 1).chr
-      input_stream_letter = (97 + i).chr
+      input_stream_letter = (98 + i).chr
       row_i = i % cells_per_side
       col_i = i % (i * cells_per_side) rescue 0
       _arg << "[#{last_new_stream_letter}][#{input_stream_letter}]" + \
-              "overlay=#{cell_size*row_i}:h#{cell_size*col_i}[#{new_stream_letter}];"
+              "overlay=#{cell_size*row_i}:#{cell_size*col_i}[#{new_stream_letter}];"
       last_new_stream_letter = new_stream_letter
     end
+    # remove the last stream letter ref
+    _arg = _arg[0..-5]
     _arg << '"'
     $log.debug "COMPLEX ARG: #{_arg}"
     args << _arg
     args << "-shortest" # stop w/ first to stop
+    args << "-f h264"
     args << "-" # output to stdout
+    args << "2> /tmp/ffmpeg_err.out" # output errors
     return args
   end
 
@@ -175,8 +192,9 @@ class UnixPipeWriter
   end
 
   def push_to_fifo fifo_path, data
-    $log.debug "Unix push to file: #{fifo_path} #{data.length}"
+    $log.debug "Unix push to fifo: #{fifo_path} #{data.length}"
     @pipes[fifo_path].write data
+    $log.debug "Unix done pushing to fifo"
   end
 
   def ensure_fifo_exists fifo_path
