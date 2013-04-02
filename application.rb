@@ -4,6 +4,14 @@ require 'logger'
 
 $log = Logger.new STDOUT
 
+class LogHandler < Handler
+  def write data
+    $log.debug "WRITING TO CLIENT: #{data.length}" unless data.nil?
+    #@socket.write data
+    $log.debug "DONE WRITING TO CLIENT"
+  end
+end
+
 class FFMpegger
 
   include Messenger
@@ -32,11 +40,16 @@ class FFMpegger
   def push_new_ffmpeg_data
     $log.debug "Checking for FFMPEG data"
     begin
-      data = @ffmpeg_reader.read_nonblock 4096 unless @ffmpeg_reader.nil?
+      unless @ffmpeg_pipe.nil?
+        data = ''
+        loop do
+          data << @ffmpeg_pipe.read_nonblock(2096)
+        end
+      end
     rescue IO::WaitReadable 
-      # nothing to read
+      # nothing left to read
     end
-    return false if data.nil?
+    return false if data.nil? || data.empty?
     $log.debug "FFMPEG Data: #{data.length}"
     push_message({:data=>data}) unless data.nil?
   end
@@ -50,14 +63,10 @@ class FFMpegger
   def start_ffmpeg
     $log.info "FFMPEG Starting"
     clean_heartbeats
-    @ffmpeg_reader, ffmpeg_writer = IO.pipe
     cmd = ffmpeg_command
     $log.info "FFMPEG Command: #{cmd}"
-    @ffmpeg_pid = fork {
-      $stdout.reopen ffmpeg_writer
-      exec cmd
-    }
-    $log.info "FFMPEG PID: #{@ffmpeg_pid}"
+    @ffmpeg_pipe = IO.popen(cmd, 'r')
+    $log.info "FFMPEG PID: #{@ffmpeg_pipe.pid}"
   end
 
   def ffmpeg_command
@@ -126,10 +135,10 @@ class FFMpegger
   end
 
   def stop_ffmpeg
-    $log.info "Stopping FFMPEG: #{@ffmpeg_pid}"
-    return false if @ffmpeg_pid.nil?
-    $log.info "Killing FFMPEG: #{@ffmpeg_pid}"
-    Process.kill @ffmpeg_pid
+    $log.info "Stopping FFMPEG"
+    return false if @ffmpeg_pipe.nil?
+    $log.info "Killing FFMPEG: #{@ffmpeg_pipe.pid}"
+    Process.kill @ffmpeg_pipe.pid
   end
 
   def heartbeat pipe_path
@@ -140,6 +149,14 @@ class FFMpegger
   def ffmpeg_needs_restart?
     return true if stopped_getting_data?
     return true if added_new_connection?
+    return true if ffmpeg_dead?
+  end
+
+  def ffmpeg_dead?
+    dead = true if @ffmpeg_pipe.nil?
+    dead = dead || Process.getpgid(@ffmpeg_pipe.pid) == 1
+    $log.info "FFMPEG DEAD" if dead
+    dead
   end
 
   def stopped_getting_data?
@@ -217,10 +234,10 @@ ffmpegger = FFMpegger.new
 ffmpegger.bind_queues IQueue.new, IQueue.new
 unix_pipe_writer = UnixPipeWriter.new
 unix_pipe_writer.bind_queues IQueue.new, IQueue.new
-socket_server = Server.new 'localhost', 8000, Handler
+socket_server = Server.new 'localhost', 8000, LogHandler
 socket_server.bind_queues IQueue.new, IQueue.new
 
-pipeline = Pipeline.new socket_server, unix_pipe_writer, ffmpegger, socket_server
+pipeline = Pipeline.new socket_server, unix_pipe_writer, ffmpegger
 
 loop do
   pipeline.cycle
