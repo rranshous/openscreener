@@ -1,6 +1,7 @@
 require 'socketeer'
 require 'fifo'
 require 'logger'
+require 'thread/pool'
 
 Thread.abort_on_exception = true
 
@@ -23,7 +24,7 @@ class FFMpegger
     handle_data msg[:pipe_path], msg[:data] unless msg.nil?
     push_new_ffmpeg_data
     clean_heartbeats
-    restart_ffmpeg if ffmpeg_needs_restart? && has_sources?
+    restart_ffmpeg if ffmpeg_needs_restart?
   end
 
   def handle_data pipe_path, data
@@ -34,11 +35,12 @@ class FFMpegger
   private
 
   def push_new_ffmpeg_data
+    $log.debug "Checking for FFMPEG data"
     begin
       unless @ffmpeg_pipe.nil?
         data = ''
         loop do
-          data << @ffmpeg_pipe.read_nonblock(4096)
+          data << @ffmpeg_pipe.read_nonblock(4096) rescue EOFError
         end
       end
     rescue IO::WaitReadable 
@@ -52,11 +54,16 @@ class FFMpegger
   def restart_ffmpeg
     $log.info "FFMPEG Restart"
     stop_ffmpeg
+    clean_heartbeats
     start_ffmpeg
   end
 
   def start_ffmpeg
     $log.info "FFMPEG Starting"
+    unless has_sources?
+      $log.info "Not starting FFMPEG, no sources"
+      return false
+    end
     cmd = ffmpeg_command
     $log.info "FFMPEG Command: #{cmd}"
     @ffmpeg_pipe = IO.popen(cmd, 'r')
@@ -125,7 +132,9 @@ class FFMpegger
 
   def clean_heartbeats
     l = @heartbeats.length
+    # clear old or missing
     @heartbeats = @heartbeats.select { |_,t| Time.now.to_i - t < 20 }
+    @heartbeats = @heartbeats.select { |p,_| File.exists? p }
   end
 
   def has_sources?
@@ -136,10 +145,11 @@ class FFMpegger
     $log.info "Stopping FFMPEG"
     return false if @ffmpeg_pipe.nil?
     $log.info "Killing FFMPEG: #{@ffmpeg_pipe.pid}"
-    Process.kill "TERM", @ffmpeg_pipe.pid
+    Process.kill "TERM", @ffmpeg_pipe.pid rescue Errno::ESRCH
     $log.info "Waiting on kill: #{@ffmpeg_pipe.pid}"
-    Process.wait @ffmpeg_pipe.pid, 0
+    Process.wait @ffmpeg_pipe.pid, 0 rescue Errno::ECHILD
     $log.info "Done waiting"
+    clear_fifos
   end
 
   def heartbeat pipe_path
@@ -156,7 +166,11 @@ class FFMpegger
 
   def ffmpeg_dead?
     dead = true if @ffmpeg_pipe.nil?
-    dead = dead || Process.getpgid(@ffmpeg_pipe.pid) == 1
+    begin
+      dead = dead || Process.getpgid(@ffmpeg_pipe.pid) == 1
+    rescue Errno::ESRCH
+      dead = true
+    end
     $log.info "FFMPEG DEAD" if dead && !@ffmpeg_pipe.nil?
     dead
   end
@@ -178,6 +192,12 @@ class FFMpegger
     true
   end
 
+  def clear_fifos
+    fifos = Dir.glob('data/*')
+    $log.info "Clearing FIFOs: #{fifos}"
+    fifos.each { |p| File.unlink(p) }
+  end
+
 end
 
 class UnixPipeWriter
@@ -186,6 +206,7 @@ class UnixPipeWriter
 
   def initialize
     @pipes = {}
+    @threadpool = Thread.pool(2)
   end
 
   def cycle
@@ -207,7 +228,7 @@ class UnixPipeWriter
     $log.debug "Unix push to pipe #{connection_id}: " + \
               "#{path(connection_id)} #{data.length}"
     ensure_fifo_exists path(connection_id)
-    push_to_fifo path(connection_id), data
+    thread_out_push_to_fifo path(connection_id), data
   end
 
   def push_to_fifo fifo_path, data
@@ -216,8 +237,23 @@ class UnixPipeWriter
     $log.debug "Unix done pushing to fifo"
   end
 
+  def thread_out_push_to_fifo fifo_path, data
+    # assumes the work is done sequentually
+    # chance that data will get out of order
+    @threadpool.process {
+      $log.debug "Writing FIFO: #{fifo_path} #{data.length}"
+      @pipes[fifo_path].write data
+      $log.debug "FINISHED writing FIFO: #{fifo_path}"
+    }
+  end
+
   def ensure_fifo_exists fifo_path
     $log.debug "Ensure fifo exists: #{fifo_path}"
+    unless File.exists? fifo_path
+      $log.debug "Closing missing FIFO: #{fifo_path}"
+      @pipes[fifo_path].close if @pipes[fifo_path] rescue
+      @pipes.delete fifo_path
+    end
     @pipes[fifo_path] ||= mkfifo fifo_path
   end
 

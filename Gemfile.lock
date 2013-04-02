@@ -8,6 +8,7 @@ GEM
     socketeer (0.0.12)
       msgpack
       nio4r
+    thread (0.0.6.1)
 
 PLATFORMS
   ruby
@@ -15,3 +16,4 @@ PLATFORMS
 DEPENDENCIES
   ruby-fifo
   socketeer (>= 0.0.10)
+  thread
