@@ -5,6 +5,7 @@ require 'logger'
 Thread.abort_on_exception = true
 
 $log = Logger.new STDOUT
+$log.level = Logger::DEBUG
 
 class FFMpegger
 
@@ -72,6 +73,7 @@ class FFMpegger
 
   def ffmpeg_args
     args = []
+    args << '-v verbose'
     @heartbeats.each do |fifo_path, last_heartbeat|
       args << "-i #{fifo_path}"
     end
@@ -134,8 +136,10 @@ class FFMpegger
     $log.info "Stopping FFMPEG"
     return false if @ffmpeg_pipe.nil?
     $log.info "Killing FFMPEG: #{@ffmpeg_pipe.pid}"
-    Process.kill 9, @ffmpeg_pipe.pid
-    Process.wait @ffmpeg_pipe.pid
+    Process.kill "TERM", @ffmpeg_pipe.pid
+    $log.info "Waiting on kill: #{@ffmpeg_pipe.pid}"
+    Process.wait @ffmpeg_pipe.pid, 0
+    $log.info "Done waiting"
   end
 
   def heartbeat pipe_path
@@ -147,6 +151,7 @@ class FFMpegger
     return true if stopped_getting_data?
     return true if added_new_connection?
     return true if ffmpeg_dead?
+    false
   end
 
   def ffmpeg_dead?
