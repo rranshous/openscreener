@@ -1,0 +1,17 @@
+GEM
+  remote: https://gems.gemfury.com/wvpDa7E2NASNBhGVJsjf/
+  remote: https://rubygems.org/
+  specs:
+    msgpack (0.5.4)
+    nio4r (0.4.3)
+    ruby-fifo (0.0.1)
+    socketeer (0.0.9)
+      msgpack
+      nio4r
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  ruby-fifo
+  socketeer

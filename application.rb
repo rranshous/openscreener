@@ -1,4 +1,5 @@
 require 'socketeer'
+require 'fifo'
 
 class FFMpegger
 
@@ -25,8 +26,8 @@ class FFMpegger
   private
 
   def push_new_ffmpeg_data
-    data = @@ffmpeg_output.read_noblock
-    push_message({:data=>data})
+    data = @ffmpeg_output.read_nonblock 4096 rescue nil
+    push_message({:data=>data}) unless data.nil?
   end
 
   def restart_ffmpeg
@@ -40,16 +41,17 @@ class FFMpegger
     @ffmpeg_pid = fork {
       ffmpeg_input.close # nothing to write
       $stdout.reopen @ffmpeg_output
-      exec @@ffmpeg_command, ffmpeg_args
+      exec @@ffmpeg_command, *ffmpeg_args
     }
   end
 
   def ffmpeg_args
     # TODO
+    []
   end
 
   def clean_heartbeats
-    @heartbeats.select { |_,t| t - Time.now > 20.seconds }
+    @heartbeats.select { |_,t| t - Time.now.to_i > 20 }
   end
 
   def stop_ffmpeg
@@ -58,7 +60,7 @@ class FFMpegger
   end
 
   def heartbeat pipe_path
-    @heartbeats[pipe_path] = Time.now
+    @heartbeats[pipe_path] = Time.now.to_i
   end
 
   def ffmpeg_needs_restart?
@@ -68,20 +70,27 @@ class FFMpegger
 
   def stopped_getting_data?
     @heartbeats.each do |pipe_path, last_beat|
-      return true if last_beat - Time.now > 20.seconds
+      return true if last_beat - Time.now.to_i > 20
     end
     false
   end
 
   def added_new_connection?
-    return false if previous_keys == @heartbeats.keys
-    previous_keys = @heartbeats.keys
+    return false if @previous_keys == @heartbeats.keys
+    @previous_keys = @heartbeats.keys
     true
   end
 
 end
 
 class UnixPipeWriter
+
+  include Messenger
+
+  def initialize
+    @pipes = {}
+  end
+
   def cycle
     msg = pop_message
     handle_data msg[:conn_id], msg[:data] unless msg.nil?
@@ -101,16 +110,20 @@ class UnixPipeWriter
     push_to_fifo path(connection_id), data
   end
 
-  def push_to_fifo path, data
-    File.open(path, 'a') { |f| f.write data }
+  def push_to_fifo fifo_path, data
+    @pipes[fifo_path].write data
   end
 
   def ensure_fifo_exists connection_id
-    mkfifo path connection_id rescue true
+    @pipes[path(connection_id)] = mkfifo path connection_id
   end
 
   def mkfifo fifo_path
-    # TODO
+    Fifo.new(fifo_path)
+  end
+
+  def path connection_id
+    File.join(File.absolute_path('.'), 'data', connection_id.to_s)
   end
 
 end
@@ -123,3 +136,7 @@ socket_server = Server.new 'localhost', 8000, Handler
 socket_server.bind_queues IQueue.new, IQueue.new
 
 pipeline = Pipeline.new socket_server, unix_pipe_writer, ffmpegger, socket_server
+
+loop do
+  pipeline.cycle
+end
