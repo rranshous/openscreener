@@ -24,7 +24,7 @@ class FFMpegger
     handle_data msg[:pipe_path], msg[:data] unless msg.nil?
     push_new_ffmpeg_data
     clean_heartbeats
-    restart_ffmpeg if ffmpeg_needs_restart?
+    restart_ffmpeg if ffmpeg_needs_restart? && has_sources?
   end
 
   def handle_data pipe_path, data
@@ -35,15 +35,17 @@ class FFMpegger
   private
 
   def push_new_ffmpeg_data
-    $log.debug "Checking for FFMPEG data"
+    $log.debug "Checking for FFMPEG data: #{ffmpeg_dead?}"
     begin
       unless @ffmpeg_pipe.nil?
         data = ''
         loop do
-          data << @ffmpeg_pipe.read_nonblock(4096) rescue EOFError
+          data << @ffmpeg_pipe.read_nonblock(4096)
         end
+      else
+        $log.debug "CANT check data, no pipe"
       end
-    rescue IO::WaitReadable 
+    rescue IO::WaitReadable, EOFError
       # nothing left to read
     end
     return false if data.nil? || data.empty?
@@ -87,7 +89,7 @@ class FFMpegger
     args << '-filter_complex'
 
     # output a square video for simplicity
-    output_width = output_height = 1024
+    output_width = output_height = 800
     number_of_inputs = @heartbeats.length
     cells_per_side = Math.sqrt(number_of_inputs).ceil # round up
     cell_size = output_width / cells_per_side
@@ -144,6 +146,10 @@ class FFMpegger
   def stop_ffmpeg
     $log.info "Stopping FFMPEG"
     return false if @ffmpeg_pipe.nil?
+    if ffmpeg_dead?
+      $log.info "NOT stopping, already dead"
+      return
+    end
     $log.info "Killing FFMPEG: #{@ffmpeg_pipe.pid}"
     Process.kill "TERM", @ffmpeg_pipe.pid rescue Errno::ESRCH
     $log.info "Waiting on kill: #{@ffmpeg_pipe.pid}"
@@ -196,6 +202,8 @@ class FFMpegger
     fifos = Dir.glob('data/*')
     $log.info "Clearing FIFOs: #{fifos}"
     fifos.each { |p| File.unlink(p) }
+    # give it a min to rebuild
+    sleep(2)
   end
 
 end
@@ -206,7 +214,7 @@ class UnixPipeWriter
 
   def initialize
     @pipes = {}
-    @threadpool = Thread.pool(2)
+    @threadpool = Thread.pool(20)
   end
 
   def cycle
@@ -228,12 +236,19 @@ class UnixPipeWriter
     $log.debug "Unix push to pipe #{connection_id}: " + \
               "#{path(connection_id)} #{data.length}"
     ensure_fifo_exists path(connection_id)
-    thread_out_push_to_fifo path(connection_id), data
+    push_to_fifo path(connection_id), data
   end
 
   def push_to_fifo fifo_path, data
     $log.debug "Unix push to fifo: #{fifo_path} #{data.length}"
-    @pipes[fifo_path].write data
+    begin
+      @pipes[fifo_path].instance_eval do
+        @pipe.write_nonblock data
+      end
+    rescue IO::WaitReadable, EOFError, IOError, Errno::EAGAIN => ex
+      # not ready for write, oh wells, skip this data
+      $log.debug "NOT ready for writes: #{fifo_path}: #{ex}"
+    end
     $log.debug "Unix done pushing to fifo"
   end
 
