@@ -212,8 +212,6 @@ class UnixPipeWriter
 
   include Messenger
 
-  @@big_hammer = Mutex.new
-
   def initialize
     @pipes = {}
     @threadpool = Thread.pool(20)
@@ -238,8 +236,7 @@ class UnixPipeWriter
     $log.debug "Unix push to pipe #{connection_id}: " + \
               "#{path(connection_id)} #{data.length}"
     ensure_fifo_exists path(connection_id)
-    thread_out_push_to_fifo path(connection_id), data
-    #push_to_fifo path(connection_id), data
+    push_to_fifo path(connection_id), data
   end
 
   def push_to_fifo fifo_path, data
@@ -250,35 +247,10 @@ class UnixPipeWriter
       end
     rescue IO::WaitReadable, EOFError, IOError, Errno::EAGAIN => ex
       # not ready for write, oh wells, skip this data
-      $log.debug "NOT ready for writes: #{fifo_path}: #{ex}"
+      $log.info "NOT ready for writes: #{fifo_path}: #{ex}"
+      return
     end
-    $log.debug "Unix done pushing to fifo"
-  end
-
-  def thread_out_push_to_fifo fifo_path, data
-    # assumes the work is done sequentually
-    # chance that data will get out of order
-    @work_queue ||= Queue.new
-    if @work_queue.length >= 10
-      $log.debug "NOT adding work to FIFO: #{fifo_path} #{@work_queue.length}"
-      return false
-    end
-    $log.debug "ADDING work to FIFO: #{fifo_path} #{@work_queue.length}"
-    @work_queue << [fifo_path, data, Time.now]
-    @threadpool.process do
-      begin
-        while (d = @work_queue.deq) do
-          fifo_path, data, s = d
-          n = Time.now
-          $log.debug "Writing FIFO [#{s.to_i-n.to_i}]: #{fifo_path} #{data.length}"
-          # we dont really want to use the big hammer, but right now we're fighting
-          # bugs at a conceptual level
-          @@big_hammer.synchronize { @pipes[fifo_path].write data }
-          $log.debug "FINISHED writing FIFO [#{s.to_i-n.to_i}]: #{fifo_path}"
-        end
-      rescue
-      end
-    end
+    $log.debug "Unix done pushing to fifo: #{fifo_path} #{data.length}"
   end
 
   def ensure_fifo_exists fifo_path
