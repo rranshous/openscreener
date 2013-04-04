@@ -90,14 +90,14 @@ class FFMpegger
     $log.debug "CELL SIZE: #{cell_size}"
 
     _arg = '"'
-    # create initial padding to create correct size area
-    _arg << "[0:0]pad=#{output_width}:#{output_height}[a];"
+    # create initial nothing background
+    _arg << "nullsrc=size=#{output_width}x#{output_height}[a];"
 
     # scale our inputs
     stream_letter = 'a'
     @heartbeats.keys.each_with_index do |_, i|
       stream_letter = (98 + i).chr
-      _arg << "[#{i}:0]scale=#{cell_size}:-1[#{stream_letter}];"
+      _arg << "[#{i}:0]setpts=PTS-STARTPTS,scale=#{cell_size}:-1[#{stream_letter}];"
     end
 
     # line our inputs up
