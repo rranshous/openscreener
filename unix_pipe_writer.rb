@@ -1,3 +1,4 @@
+require 'timeout'
 
 class UnixPipeWriter
 
@@ -30,6 +31,23 @@ class UnixPipeWriter
   end
 
   def push_to_fifo fifo_path, data
+    push_to_fifo_block fifo_path, data
+    #push_to_fifo_nonblock fifo_path, data
+  end
+
+  def push_to_fifo_block fifo_path, data
+    $log.debug "Unix push to fifo: #{fifo_path} #{data.length}"
+    begin
+      status = Timeout::timeout(10) {
+        @pipes[fifo_path].write data
+      }
+      $log.debug "Unix done pushing to fifo: #{fifo_path} #{data.length}"
+    rescue Timeout::Error
+      $log.debug "TIMEOUT Unix push to fifo: #{fifo_path}"
+    end
+  end
+
+  def push_to_fifo_nonblock fifo_path, data
     $log.debug "Unix push to fifo: #{fifo_path} #{data.length}"
     begin
       @pipes[fifo_path].instance_eval do

@@ -146,7 +146,6 @@ class FFMpegger
     $log.info "Waiting on kill: #{@ffmpeg_pipe.pid}"
     Process.wait @ffmpeg_pipe.pid, 0 rescue Errno::ECHILD
     $log.info "Done waiting"
-    clear_fifos
   end
 
   def heartbeat pipe_path
@@ -187,14 +186,6 @@ class FFMpegger
     $log.info "Connection change: #{@previous_keys} => #{@heartbeats.keys}"
     @previous_keys = @heartbeats.keys
     true
-  end
-
-  def clear_fifos
-    fifos = Dir.glob('data/*')
-    $log.info "Clearing FIFOs: #{fifos}"
-    fifos.each { |p| File.unlink(p) }
-    # give it a min to rebuild
-    sleep(2)
   end
 
 end
