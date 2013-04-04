@@ -110,7 +110,9 @@ class FFMpegger
       $log.debug "COLI: #{col_i}"
       $log.debug "ROWI: #{row_i}"
       _arg << "[#{last_new_stream_letter}][#{input_stream_letter}]" + \
-              "overlay=#{cell_size*col_i}:#{cell_size*row_i}[#{new_stream_letter}];"
+              "overlay=" + \
+              "#{cell_size*col_i}+(#{cell_size}-w)/2:" + \
+              "#{cell_size*row_i}+(#{cell_size}-h)/2[#{new_stream_letter}];"
       last_new_stream_letter = new_stream_letter
     end
     # remove the last stream letter ref
