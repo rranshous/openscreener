@@ -18,15 +18,17 @@ socket_server.bind_queues IQueue.new, IQueue.new
 
 # first block creates a new handler instance
 # second block returns handler key from message
-fan_unix_pipe_writer = FanPipe.new(lambda { 
-                                    w = UnixPipeWriter.new
-                                    w.bind_queues IQueue.new, IQueue.new
-                                    w
-                                   },
-                                   lambda { |m| m[:conn_id] })
+fan_unix_pipe_writer = FanPipe.new(
+  lambda { 
+    w = UnixPipeWriter.new
+    w.bind_queues IQueue.new, IQueue.new
+    w
+  },
+  lambda { |m| m[:conn_id] })
+
 pipeline = ThreadedPipeline.new(socket_server, 
                                 fan_unix_pipe_writer, 
                                 ffmpegger, 
-                                socket_server
+                                socket_server)
 
 pipeline.start_threaded_cycle

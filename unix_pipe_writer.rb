@@ -5,7 +5,6 @@ class UnixPipeWriter
 
   def initialize
     @pipes = {}
-    @threadpool = Thread.pool(20)
   end
 
   def cycle

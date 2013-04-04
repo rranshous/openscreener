@@ -1,3 +1,4 @@
+require 'debugger'
 
 class ThreadedPipeline < Pipeline
 
@@ -12,7 +13,7 @@ class ThreadedPipeline < Pipeline
           rescue ThreadError
           end
         end
-        sleep 0.01
+        sleep 0.1
       end
     end.join
   end
@@ -22,7 +23,7 @@ class ThreadedPipeline < Pipeline
       Thread.new do 
         loop do
           obj.cycle
-          sleep 0.01
+          sleep 0.1
         end
       end
     end
@@ -43,12 +44,18 @@ class FanPipe
 
   def handler_for_message m
     key = @get_key.call m
-    if @threads[key].nil?
+    raise "BAD KEY: #{m.keys} #{m[:conn_id]} #{key}" if key.nil? || key == ''
+    if @handlers[key].nil?
+      $log.info "Creating handler thread: #{key}"
       handler = @create_new.call
+      $log.debug "Handler: #{handler}"
       @handlers[key] = handler
       Thread.new do
+        # TODO: die if i dont get a msg for a while
         loop do
+          $log.debug "Cycling handler in thread: #{key}"
           handler.cycle
+          sleep 0.1
         end
       end
     end
@@ -67,13 +74,17 @@ class FanPipe
 
   def cycle_in_messages
     m = pop_message
-    return false if n.nil?
+    return false if m.nil?
+    $log.debug "Pushing to thread"
     push_to_thread m
   end
 
   def cycle_out_messages
-    @handlers.each do |h|
-      in_queue << h.out_queue.deq rescue nil
+    @handlers.each do |conn_id, h|
+      m = h.out_queue.deq
+      next if m.nil?
+      $log.debug "Cycle out [#{conn_id}]"
+      out_queue << m
     end
   end
 
