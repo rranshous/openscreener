@@ -1,35 +1,3 @@
-require 'debugger'
-
-class ThreadedPipeline < Pipeline
-
-  def start_threaded_cycle
-    @messengers.each { |m| cycle_thread(m) }
-    Thread.new do
-      loop do
-        @messengers.each_cons(2) do |a, b|
-          begin
-            m = a.out_queue.deq true
-            b.in_queue << m
-          rescue ThreadError
-          end
-        end
-        sleep 0.1
-      end
-    end.join
-  end
-
-  def cycle_thread obj
-    if obj.respond_to? 'cycle'
-      Thread.new do 
-        loop do
-          obj.cycle
-          sleep 0.1
-        end
-      end
-    end
-  end
-
-end
 
 class FanPipe
 
@@ -81,10 +49,10 @@ class FanPipe
 
   def cycle_out_messages
     @handlers.each do |conn_id, h|
-      m = h.out_queue.deq
+      m = h.out_queue.deq(true) rescue nil
       next if m.nil?
-      $log.debug "Cycle out [#{conn_id}]"
-      out_queue << m
+      $log.debug "Cycle out #{conn_id}"
+      push_message m
     end
   end
 

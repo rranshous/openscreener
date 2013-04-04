@@ -26,9 +26,11 @@ fan_unix_pipe_writer = FanPipe.new(
   },
   lambda { |m| m[:conn_id] })
 
-pipeline = ThreadedPipeline.new(socket_server, 
-                                fan_unix_pipe_writer, 
-                                ffmpegger, 
-                                socket_server)
+pipeline = Pipeline.new(socket_server, 
+                        fan_unix_pipe_writer, 
+                        ffmpegger, 
+                        socket_server)
 
-pipeline.start_threaded_cycle
+loop do
+  pipeline.cycle
+end
