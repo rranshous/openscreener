@@ -91,7 +91,7 @@ class FFMpegger
 
     _arg = '"'
     # create initial nothing background
-    _arg << "nullsrc=size=#{output_width}x#{output_height}[a];"
+    _arg << "color=size=#{output_width}x#{output_height}[a];"
 
     # scale our inputs
     stream_letter = 'a'
@@ -105,10 +105,12 @@ class FFMpegger
     @heartbeats.keys.each_with_index do |fifo_path, i|
       new_stream_letter = (last_new_stream_letter.ord + 1).chr
       input_stream_letter = (98 + i).chr
-      row_i = i % cells_per_side
-      col_i = i % (i * cells_per_side) rescue 0
+      col_i = i % cells_per_side rescue 0
+      row_i = (i - (cells_per_side * col_i)).max(1) rescue 0
+      $log.debug "COLI: #{col_i}"
+      $log.debug "ROWI: #{row_i}"
       _arg << "[#{last_new_stream_letter}][#{input_stream_letter}]" + \
-              "overlay=#{cell_size*row_i}:#{cell_size*col_i}[#{new_stream_letter}];"
+              "overlay=#{cell_size*col_i}:#{cell_size*row_i}[#{new_stream_letter}];"
       last_new_stream_letter = new_stream_letter
     end
     # remove the last stream letter ref
@@ -117,7 +119,9 @@ class FFMpegger
     $log.debug "COMPLEX ARG: #{_arg}"
     args << _arg
     args << "-shortest" # stop w/ first to stop
-    args << "-f h264"
+    args << "-vbsf h264_mp4toannexb" # mpeg2 transport stream
+    args << "-vcodec h264"
+    args << "-f mpegts"
     args << "-" # output to stdout
     args << "2> /tmp/ffmpeg_err.out" # output errors
     return args
