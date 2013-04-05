@@ -53,31 +53,29 @@ class UnixPipeWriter
   end
 
   def push_to_fifo fifo_path, data
-    #push_to_fifo_block fifo_path, data
+    push_to_fifo_block fifo_path, data
     #push_to_fifo_nonblock fifo_path, data
-    push_to_fifo_drop_stale_queue fifo_path, data
+    #push_to_fifo_drop_stale_queue fifo_path, data
   end
 
   def push_to_fifo_drop_stale_queue fifo_path, data
-    unless push_to_fifo_block fifo_path, data, 5
+    begin
+      status = Timeout::timeout(timeout) {
+        push_to_fifo_block fifo_path, data
+      }
+    rescue Timeout::Error
+      $log.debug "TIMEOUT Unix push to fifo: #{fifo_path}"
       clear_queue
       false
     end
     true
   end
 
-  def push_to_fifo_block fifo_path, data, timeout=20
+  def push_to_fifo_block fifo_path, data
     $log.debug "Unix push to fifo: #{fifo_path} #{data.length}"
-    begin
-      status = Timeout::timeout(timeout) {
-        @pipes[fifo_path].write data
-      }
-      $log.debug "Unix done pushing to fifo: #{fifo_path} #{data.length}"
-      true
-    rescue Timeout::Error
-      $log.debug "TIMEOUT Unix push to fifo: #{fifo_path}"
-      false
-    end
+    @pipes[fifo_path].write data
+    $log.debug "Unix done pushing to fifo: #{fifo_path} #{data.length}"
+    true
   end
 
   def push_to_fifo_nonblock fifo_path, data

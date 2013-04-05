@@ -23,9 +23,9 @@ class FanPipe
       Thread.new do
         # TODO: die if i dont get a msg for a while
         loop do
-          $log.debug "Cycling handler in thread: #{key}"
+          #$log.debug "Cycling handler in thread: #{key}"
           handler.cycle
-          sleep 0.1
+          #sleep 0.1
         end
       end
       # let all the threads know there is a new handler
@@ -46,21 +46,28 @@ class FanPipe
   end
 
   def cycle_in_messages
+    $log.debug "CYCLING IN"
     1000.times do
       m = pop_message
-      return false if m.nil?
+      if m.nil?
+        return false 
+        $log.debug "CYCLE IN DONE"
+      end
       $log.debug "Pushing to thread"
       push_to_thread m
     end
+    $log.debug "CYCLING IN DONE"
   end
 
   def cycle_out_messages
+    $log.debug "CYCLING OUT"
     @handlers.each do |key, h|
       m = h.out_queue.deq(true) rescue nil
       next if m.nil?
       $log.debug "Cycle out #{key}"
       push_message m
     end
+    $log.debug "CYCLING OUT DONE"
   end
 
   def send_state_update key, msg

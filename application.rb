@@ -1,7 +1,6 @@
 require 'socketeer'
 require 'fifo'
 require 'logger'
-require 'thread/pool'
 require_relative 'pipeline_overrides'
 require_relative 'unix_pipe_writer'
 require_relative 'ffmpegger'
@@ -21,9 +20,18 @@ class IQueue
   end
 end
 
+class Handler
+  def write data
+    return if data.nil?
+    $log.debug "Writing"
+    @socket.write data
+    $log.debug "DONE writing"
+  end
+end
+
 ffmpegger = FFMpegger.new
 ffmpegger.bind_queues IQueue.new, IQueue.new
-socket_server = Server.new 'localhost', 8000, Handler
+socket_server = Server.new '0.0.0.0', 8000, Handler
 socket_server.bind_queues IQueue.new, IQueue.new
 
 # first block creates a new handler instance
