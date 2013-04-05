@@ -23,9 +23,8 @@ class FanPipe
       Thread.new do
         # TODO: die if i dont get a msg for a while
         loop do
-          #$log.debug "Cycling handler in thread: #{key}"
           handler.cycle
-          #sleep 0.1
+          sleep 0.01
         end
       end
       # let all the threads know there is a new handler
