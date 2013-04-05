@@ -99,7 +99,9 @@ class FFMpegger
     initial_char = 'a'
     stream_letter = initial_char.dup
     @heartbeats.keys.each_with_index do |_, i|
-      _arg << "[#{i}:0]setpts=PTS-STARTPTS,scale=#{cell_size}:-1[#{stream_letter}];"
+      _arg << "[#{i}:0]"
+      _arg << "setpts=PTS-STARTPTS,"
+      _arg << "scale=#{cell_size}:-1[#{stream_letter}];"
       stream_letter = (stream_letter.ord + 1).chr
     end
 
@@ -129,7 +131,6 @@ class FFMpegger
     $log.debug "COMPLEX ARG: #{_arg}"
     args << _arg
     args << "-an" # no audio
-    #args << "-framedrop!" # ?
     args << "-preset ultrafast" # try and move it along
     args << "-vbsf h264_mp4toannexb" # mpeg2 transport stream
     args << "-vcodec h264" # h264 encoded video
