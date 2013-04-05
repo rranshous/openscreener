@@ -76,6 +76,7 @@ class FFMpegger
     args = []
     #args << '-v debug'
     @heartbeats.each do |fifo_path, last_heartbeat|
+      args << "-re" # native frame rate
       args << "-i #{fifo_path}"
     end
     args << '-filter_complex'
@@ -119,6 +120,7 @@ class FFMpegger
               "#{cell_size*row_i}+(#{cell_size}-h)/2" + \
               "[#{new_output}];"
       last_output = new_output
+      new_output = (new_output.ord + 1).chr
       next_input = (next_input.ord + 1).chr
     end
     # remove the last stream letter ref
@@ -126,9 +128,11 @@ class FFMpegger
     _arg << '"'
     $log.debug "COMPLEX ARG: #{_arg}"
     args << _arg
-    args << "-shortest" # stop w/ first to stop
+    args << "-an" # no audio
+    #args << "-framedrop!" # ?
+    args << "-preset ultrafast" # try and move it along
     args << "-vbsf h264_mp4toannexb" # mpeg2 transport stream
-    args << "-vcodec h264"
+    args << "-vcodec h264" # h264 encoded video
     args << "-f mpegts"
     args << "-" # output to stdout
     args << "2> /tmp/ffmpeg_err.out" # output errors
