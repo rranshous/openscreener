@@ -26,6 +26,9 @@ class FanPipe
           sleep 0.1
         end
       end
+      # let all the threads know there is a new handler
+      # the new handler will get this msg as well
+      send_state_update key, :new_conn
     end
     @handlers[key]
   end
@@ -48,11 +51,18 @@ class FanPipe
   end
 
   def cycle_out_messages
-    @handlers.each do |conn_id, h|
+    @handlers.each do |key, h|
       m = h.out_queue.deq(true) rescue nil
       next if m.nil?
-      $log.debug "Cycle out #{conn_id}"
+      $log.debug "Cycle out #{key}"
       push_message m
+    end
+  end
+
+  def send_state_update key, msg
+    $log.debug "sending state update: #{key} #{msg}"
+    @handlers.each do |k, h|
+      h.in_queue << { source_key: key, pipe_message: msg, target_key: k }
     end
   end
 

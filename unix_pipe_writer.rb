@@ -10,7 +10,24 @@ class UnixPipeWriter
 
   def cycle
     msg = pop_message
-    handle_data msg[:conn_id], msg[:data] unless msg.nil?
+    handle_message msg
+  end
+
+  def handle_message msg
+    return false if msg.nil?
+    if msg[:conn_id] && msg[:data]
+      handle_data msg[:conn_id], msg[:data] unless msg.nil?
+    elsif msg[:source_key] && msg[:pipe_message]
+      $log.debug "PIPE message: #{msg}"
+      case msg[:pipe_message]
+      when :new_conn
+        # there is a new connection joining us, drop our queue
+        # only act if we weren't the new person on the block
+        clear_queue unless msg[:source_key] == msg[:target_key] 
+      else
+        $log.warn "Unhandled pipe msg: #{msg[:pipe_message]}"
+      end
+    end
   end
 
   def handle_data connection_id, data
@@ -33,22 +50,29 @@ class UnixPipeWriter
   end
 
   def push_to_fifo fifo_path, data
-    push_to_fifo_block fifo_path, data
+    #push_to_fifo_block fifo_path, data
     #push_to_fifo_nonblock fifo_path, data
+    push_to_fifo_drop_stale_queue fifo_path, data
   end
 
-  def push_to_fifo_block fifo_path, data
+  def push_to_fifo_drop_stale_queue fifo_path, data
+    unless push_to_fifo_block fifo_path, data, 5
+      clear_queue
+      false
+    end
+    true
+  end
+
+  def push_to_fifo_block fifo_path, data, timeout=20
     $log.debug "Unix push to fifo: #{fifo_path} #{data.length}"
     begin
-      status = Timeout::timeout(20) {
+      status = Timeout::timeout(timeout) {
         @pipes[fifo_path].write data
       }
       $log.debug "Unix done pushing to fifo: #{fifo_path} #{data.length}"
       true
     rescue Timeout::Error
       $log.debug "TIMEOUT Unix push to fifo: #{fifo_path}"
-      #$log.info "Clearing Queue: #{fifo_path}"
-      #clear_queue
       false
     end
   end
@@ -88,6 +112,7 @@ class UnixPipeWriter
 
   def clear_queue
     # reaching into internals
+    $log.debug "Unix Pipe Clearing Queue"
     in_queue.clear
   end
 
