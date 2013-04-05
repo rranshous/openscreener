@@ -9,8 +9,11 @@ class UnixPipeWriter
   end
 
   def cycle
-    msg = pop_message
-    handle_message msg
+    1000.times do
+      msg = pop_message
+      return if msg.nil?
+      handle_message msg
+    end
   end
 
   def handle_message msg
@@ -39,7 +42,7 @@ class UnixPipeWriter
 
   def push_details connection_id, data
     $log.debug "Pipe Pushing details: #{connection_id}"
-    push_message({ :pipe_path => path(connection_id), :data => data })
+    push_message({ :pipe_path => path(connection_id) })
   end
 
   def push_to_pipe connection_id, data
