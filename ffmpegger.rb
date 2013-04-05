@@ -12,15 +12,18 @@ class FFMpegger
   end
 
   def cycle
+    # clear out our queue if possible, trying to bring down
+    # the time lapse between a new stream connecting and
+    # being handled, think this q is backed up
     msg = pop_message
-    handle_data msg[:pipe_path], msg[:data] unless msg.nil?
+    handle_message msg[:pipe_path] unless msg.nil?
     push_new_ffmpeg_data
     clean_heartbeats
     restart_ffmpeg if ffmpeg_needs_restart? && has_sources?
   end
 
-  def handle_data pipe_path, data
-    $log.debug "Handle Data: #{pipe_path} #{data.length}"
+  def handle_message pipe_path
+    $log.debug "Handle Heartbeat msg: #{pipe_path}"
     heartbeat pipe_path
   end
 
@@ -76,6 +79,8 @@ class FFMpegger
     args = []
     #args << '-v debug'
     @heartbeats.each do |fifo_path, last_heartbeat|
+      args << "-analyzeduration 100000000"
+      #args << "-probesize 102400" # 100KB
       args << "-re" # native frame rate
       args << "-i #{fifo_path}"
     end
