@@ -15,8 +15,8 @@ class UnixPipeWriter
 
   def handle_data connection_id, data
     $log.debug "Unix Writer Handling: #{connection_id} #{data.length}"
-    push_details connection_id, data
     push_to_pipe connection_id, data
+    push_details connection_id, data
   end
 
   def push_details connection_id, data
@@ -38,12 +38,16 @@ class UnixPipeWriter
   def push_to_fifo_block fifo_path, data
     $log.debug "Unix push to fifo: #{fifo_path} #{data.length}"
     begin
-      status = Timeout::timeout(10) {
+      status = Timeout::timeout(2) {
         @pipes[fifo_path].write data
       }
       $log.debug "Unix done pushing to fifo: #{fifo_path} #{data.length}"
+      true
     rescue Timeout::Error
       $log.debug "TIMEOUT Unix push to fifo: #{fifo_path}"
+      $log.info "Clearing Queue: #{fifo_path}"
+      clear_queue
+      false
     end
   end
 
@@ -78,6 +82,11 @@ class UnixPipeWriter
 
   def path connection_id
     File.join(File.absolute_path('.'), 'data', connection_id.to_s)
+  end
+
+  def clear_queue
+    # reaching into internals
+    in_queue.clear
   end
 
 end
