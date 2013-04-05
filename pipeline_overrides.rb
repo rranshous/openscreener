@@ -1,3 +1,5 @@
+require 'thread'
+Thread.abort_on_exception = true
 
 class FanPipe
 
@@ -44,10 +46,12 @@ class FanPipe
   end
 
   def cycle_in_messages
-    m = pop_message
-    return false if m.nil?
-    $log.debug "Pushing to thread"
-    push_to_thread m
+    1000.times do
+      m = pop_message
+      return false if m.nil?
+      $log.debug "Pushing to thread"
+      push_to_thread m
+    end
   end
 
   def cycle_out_messages
