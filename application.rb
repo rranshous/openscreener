@@ -11,6 +11,16 @@ Thread.abort_on_exception = true
 $log = Logger.new STDOUT
 $log.level = Logger::DEBUG
 
+class IQueue
+  def deq *args
+    r = super
+    if length > 10
+      $log.warn "Queue Length [#{self}]: #{self.length}: #{r.keys}"
+    end
+    r
+  end
+end
+
 ffmpegger = FFMpegger.new
 ffmpegger.bind_queues IQueue.new, IQueue.new
 socket_server = Server.new 'localhost', 8000, Handler
