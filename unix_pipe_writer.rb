@@ -53,12 +53,12 @@ class UnixPipeWriter
   end
 
   def push_to_fifo fifo_path, data
-    push_to_fifo_block fifo_path, data
+    #push_to_fifo_block fifo_path, data
     #push_to_fifo_nonblock fifo_path, data
-    #push_to_fifo_drop_stale_queue fifo_path, data
+    push_to_fifo_drop_stale_queue fifo_path, data
   end
 
-  def push_to_fifo_drop_stale_queue fifo_path, data
+  def push_to_fifo_drop_stale_queue fifo_path, data, timeout=1
     begin
       status = Timeout::timeout(timeout) {
         push_to_fifo_block fifo_path, data
