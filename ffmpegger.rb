@@ -135,6 +135,7 @@ class FFMpegger
     _arg << '"'
     $log.debug "COMPLEX ARG: #{_arg}"
     args << _arg
+    args << "-tune zerolatency" # ?
     args << "-preset ultrafast" # try and move it along
     args << "-vbsf h264_mp4toannexb" # mpeg2 transport stream
     args << "-vcodec h264" # h264 encoded video
