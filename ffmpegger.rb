@@ -1,3 +1,4 @@
+require 'socketeer'
 
 class FFMpegger
 
@@ -91,29 +92,34 @@ class FFMpegger
 
     _arg = '"'
     # create initial nothing background
-    _arg << "color=size=#{output_width}x#{output_height}[a];"
+    _arg << "color=size=#{output_width}x#{output_height}[background];"
 
     # scale our inputs
-    stream_letter = 'a'
+    initial_char = 'a'
+    stream_letter = initial_char.dup
     @heartbeats.keys.each_with_index do |_, i|
-      stream_letter = (98 + i).chr
       _arg << "[#{i}:0]setpts=PTS-STARTPTS,scale=#{cell_size}:-1[#{stream_letter}];"
+      stream_letter = (stream_letter.ord + 1).chr
     end
 
     # line our inputs up
-    last_new_stream_letter = 'a'
+    # [last_output][next_input]overlay=0+(800-w)/2:0+(800-h)/2[new_output]
+    # the initial last output will be the background, followed by the new output
+    # new output will be initiall the next letter in the alphabet after the last
+    # stream letter
+    # next input will be a-<n>
+    last_output = 'background'
+    new_output = stream_letter.dup
+    next_input = initial_char.dup
     @heartbeats.keys.each_with_index do |fifo_path, i|
-      new_stream_letter = (last_new_stream_letter.ord + 1).chr
-      input_stream_letter = (98 + i).chr
-      col_i = i % cells_per_side rescue 0
-      row_i = (i - (cells_per_side * col_i)).max(1) rescue 0
-      $log.debug "COLI: #{col_i}"
-      $log.debug "ROWI: #{row_i}"
-      _arg << "[#{last_new_stream_letter}][#{input_stream_letter}]" + \
+      col_i, row_i = self.class.cell_location i, cells_per_side
+      _arg << "[#{last_output}][#{next_input}]" + \
               "overlay=" + \
               "#{cell_size*col_i}+(#{cell_size}-w)/2:" + \
-              "#{cell_size*row_i}+(#{cell_size}-h)/2[#{new_stream_letter}];"
-      last_new_stream_letter = new_stream_letter
+              "#{cell_size*row_i}+(#{cell_size}-h)/2" + \
+              "[#{new_output}];"
+      last_output = new_output
+      next_input = (next_input.ord + 1).chr
     end
     # remove the last stream letter ref
     _arg = _arg[0..-5]
@@ -127,6 +133,14 @@ class FFMpegger
     args << "-" # output to stdout
     args << "2> /tmp/ffmpeg_err.out" # output errors
     return args
+  end
+
+  def self.cell_location i, cells_per_side
+    row_i = i / cells_per_side
+    col_i = i % cells_per_side rescue 0
+    $log.debug "COLI[#{i}]: #{col_i}"
+    $log.debug "ROWI[#{i}]: #{row_i}"
+    return [col_i, row_i]
   end
 
   def clean_heartbeats
