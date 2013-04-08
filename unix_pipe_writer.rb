@@ -4,39 +4,49 @@ class UnixPipeWriter
 
   include Messenger
 
+  @@stale_timeout = 5
+
   def initialize
     @pipes = {}
   end
 
   def cycle
+    $log.debug "UNIX PIPE CYCLE"
     1000.times do
       msg = pop_message
       return if msg.nil?
       handle_message msg
     end
+    $log.debug "UNIX PIPE CYCLE DONE"
   end
 
   def handle_message msg
     return false if msg.nil?
     if msg[:conn_id] && msg[:data]
-      handle_data msg[:conn_id], msg[:data] unless msg.nil?
+      handle_data msg[:conn_id], msg[:data], msg[:timestamp]
     elsif msg[:source_key] && msg[:pipe_message]
       $log.debug "PIPE message: #{msg}"
       case msg[:pipe_message]
       when :new_conn
         # there is a new connection joining us, drop our queue
         # only act if we weren't the new person on the block
-        clear_queue unless msg[:source_key] == msg[:target_key] 
+        #clear_queue unless msg[:source_key] == msg[:target_key] 
       else
         $log.warn "Unhandled pipe msg: #{msg[:pipe_message]}"
       end
     end
   end
 
-  def handle_data connection_id, data
+  def handle_data connection_id, data, timestamp
     $log.debug "Unix Writer Handling: #{connection_id} #{data.length}"
     # push details first so that the ffmpegger knows to start
     push_details connection_id, data
+    # filter stale data
+    if (d = timestamp.to_i - Time.now.to_i) > @@stale_timeout
+      $log.info "Unix Pipe ignoring stale data" + \
+        "#{connection_id}: -#{d}s"
+      return false
+    end
     push_to_pipe connection_id, data
   end
 
@@ -53,18 +63,18 @@ class UnixPipeWriter
   end
 
   def push_to_fifo fifo_path, data
-    #push_to_fifo_block fifo_path, data
+    push_to_fifo_block fifo_path, data
     #push_to_fifo_nonblock fifo_path, data
-    push_to_fifo_drop_stale_queue fifo_path, data
+    #push_to_fifo_drop_stale_queue fifo_path, data, @@stale_timeout
   end
 
-  def push_to_fifo_drop_stale_queue fifo_path, data, timeout=1
+  def push_to_fifo_drop_stale_queue fifo_path, data, timeout
     begin
       status = Timeout::timeout(timeout) {
         push_to_fifo_block fifo_path, data
       }
     rescue Timeout::Error
-      $log.debug "TIMEOUT Unix push to fifo: #{fifo_path}"
+      $log.info "TIMEOUT Unix push to fifo: #{fifo_path}"
       clear_queue
       false
     end
@@ -113,7 +123,7 @@ class UnixPipeWriter
 
   def clear_queue
     # reaching into internals
-    $log.debug "Unix Pipe Clearing Queue"
+    $log.info "Unix Pipe Clearing Queue"
     in_queue.clear
   end
 

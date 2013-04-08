@@ -13,19 +13,10 @@ $log.level = Logger::DEBUG
 class IQueue
   def deq *args
     r = super
-    if length > 10
+    if length > 100
       $log.warn "Queue Length [#{self}]: #{self.length}: #{r.keys}"
     end
     r
-  end
-end
-
-class Handler
-  def write data
-    return if data.nil?
-    $log.debug "Writing"
-    @socket.write data
-    $log.debug "DONE writing"
   end
 end
 
@@ -33,6 +24,20 @@ ffmpegger = FFMpegger.new
 ffmpegger.bind_queues IQueue.new, IQueue.new
 socket_server = Server.new '0.0.0.0', 8000, Handler
 socket_server.bind_queues IQueue.new, IQueue.new
+
+class Timestamper
+  include Messenger
+  def cycle
+    $log.debug "TIMESTAMPPER CYCLE"
+    msg = pop_message
+    return if msg.nil?
+    msg[:timestamp] = Time.now
+    push_message msg
+    $log.debug "TIMESTAMPPER CYCLE DONE"
+  end
+end
+timestamper = Timestamper.new
+timestamper.bind_queues IQueue.new, IQueue.new
 
 # first block creates a new handler instance
 # second block returns handler key from message
@@ -45,6 +50,7 @@ fan_unix_pipe_writer = FanPipe.new(
   lambda { |m| m[:conn_id] })
 
 pipeline = Pipeline.new(socket_server, 
+                        timestamper,
                         fan_unix_pipe_writer, 
                         ffmpegger, 
                         socket_server)
