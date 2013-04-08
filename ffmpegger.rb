@@ -12,6 +12,7 @@ class FFMpegger
   end
 
   def cycle
+    $log.debug "FFMPEG CYCLE"
     # clear out our queue if possible, trying to bring down
     # the time lapse between a new stream connecting and
     # being handled, think this q is backed up
@@ -20,6 +21,7 @@ class FFMpegger
     push_new_ffmpeg_data
     clean_heartbeats
     restart_ffmpeg if ffmpeg_needs_restart? && has_sources?
+    $log.debug "FFMPEG CYCLE DONE"
   end
 
   def handle_message pipe_path
