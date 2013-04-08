@@ -79,8 +79,10 @@ class FFMpegger
     args = []
     #args << '-v debug'
     @heartbeats.each do |fifo_path, last_heartbeat|
-      args << "-analyzeduration 100000000"
+      #args << "-analyzeduration 100000000"
       #args << "-probesize 102400" # 100KB
+      args << "-vcodec h264"
+      args << "-f mpegts"
       args << "-re" # native frame rate
       args << "-i #{fifo_path}"
     end
