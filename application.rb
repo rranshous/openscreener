@@ -29,13 +29,16 @@ class Timestamper
   include Messenger
   def cycle
     $log.debug "TIMESTAMPPER CYCLE"
-    msg = pop_message
-    return if msg.nil?
-    msg[:timestamp] = Time.now
-    push_message msg
+    1000.times do
+      msg = pop_message
+      next if msg.nil?
+      msg[:timestamp] = Time.now.to_i
+      push_message msg
+    end
     $log.debug "TIMESTAMPPER CYCLE DONE"
   end
 end
+
 timestamper = Timestamper.new
 timestamper.bind_queues IQueue.new, IQueue.new
 

@@ -49,10 +49,7 @@ class FanPipe
   def cycle_in_messages
     1000.times do
       m = pop_message
-      if m.nil?
-        return false 
-        $log.debug "CYCLE IN DONE"
-      end
+      next if m.nil?
       $log.debug "Pushing to thread"
       push_to_thread m
     end
@@ -60,10 +57,12 @@ class FanPipe
 
   def cycle_out_messages
     @handlers.each do |key, h|
-      m = h.out_queue.deq(true) rescue nil
-      next if m.nil?
-      $log.debug "Cycle out #{key}"
-      push_message m
+      1000.times do 
+        m = h.out_queue.deq(true) rescue nil
+        next if m.nil?
+        $log.debug "Cycle out #{key}"
+        push_message m
+      end
     end
   end
 

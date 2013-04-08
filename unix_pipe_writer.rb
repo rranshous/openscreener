@@ -4,7 +4,7 @@ class UnixPipeWriter
 
   include Messenger
 
-  @@stale_timeout = 5
+  @@stale_timeout = 2
 
   def initialize
     @pipes = {}
@@ -14,7 +14,7 @@ class UnixPipeWriter
     $log.debug "UNIX PIPE CYCLE"
     1000.times do
       msg = pop_message
-      return if msg.nil?
+      next if msg.nil?
       handle_message msg
     end
     $log.debug "UNIX PIPE CYCLE DONE"
@@ -30,7 +30,7 @@ class UnixPipeWriter
       when :new_conn
         # there is a new connection joining us, drop our queue
         # only act if we weren't the new person on the block
-        #clear_queue unless msg[:source_key] == msg[:target_key] 
+        clear_queue unless msg[:source_key] == msg[:target_key] 
       else
         $log.warn "Unhandled pipe msg: #{msg[:pipe_message]}"
       end
@@ -42,9 +42,10 @@ class UnixPipeWriter
     # push details first so that the ffmpegger knows to start
     push_details connection_id, data
     # filter stale data
-    if (d = timestamp.to_i - Time.now.to_i) > @@stale_timeout
-      $log.info "Unix Pipe ignoring stale data" + \
+    if (d = Time.now.to_i - timestamp) > @@stale_timeout
+      $log.warn "Unix Pipe ignoring stale data" + \
         "#{connection_id}: -#{d}s"
+      clear_queue
       return false
     end
     push_to_pipe connection_id, data
