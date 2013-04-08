@@ -5,7 +5,7 @@ GEM
     msgpack (0.5.4)
     nio4r (0.4.3)
     ruby-fifo (0.0.1)
-    socketeer (0.0.16)
+    socketeer (0.0.17)
       msgpack
       nio4r
 
